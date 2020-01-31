@@ -1,0 +1,369 @@
+---
+title: "Effect of Class Size on Student Achievement"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    fig_caption: yes
+    number_sections: yes
+font-family: Helvetica
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, tidy = TRUE)
+
+## need to install the following packages
+library(tidyr) 
+library(dplyr)
+library(plyr)
+library(qwraps2)
+library(expss)
+library(AER)
+library(table1)
+library(eeptools)
+library(zoo)
+library(MASS)
+library(nortest)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(formattable)
+library(ggpubr)
+options(digits=2)
+```
+
+# 1. Introduction  
+Considering each teacher as the individual unit in this project, we examined the effect of class size on math scores in first grade. Since randomization is ensured within each school, we treated schools as another factor trying to cancel out the effect brought by school. We used a two-way ANOVA model to fit the data, conducted model diagnostics and tested whether there is a difference in math scaled score in 1st grade across teachers in different class types. At the end, we discussed our result.
+
+# 2. Exploratory Data Analysis  
+We retrieved data from the Harvard Dataverse. Relavant variables include demographics, school information, treatment group (class types), and test scores for each student and each grade. For the following analysis, we focus on the math scores of 1st grade. We omitted any observations with missing values. Our final sample consisted of 337 observations. Since our experiment unit is teacher, we grouped our data by teacher IDs. We calculated the average math scores of students taught by each teacher and used them as response variable. 
+```{r fig.height=4, fig.width=10}
+
+#load("C:/Users/admin/Desktop/2020 Winter/STA 207/Project 2/STAR_Students.RData") #load Tennessee STAR dataset
+load("C:/Users/admin/Desktop/2020 Winter/STA 207/Project 2/STAR_Students.RData")
+
+STAR     <- x #clones original dataset
+
+STAR$g1tchid <- as.character(STAR$g1tchid)
+
+teacher_unit_eda   <- STAR %>%
+  dplyr::select(g1tchid, g1tmathss,g1surban, g1classtype, g1tgen, g1trace, g1thighdegree, g1tcareer, g1tyears, g1tlistss) %>%
+  drop_na() %>%
+  group_by(g1tchid) %>%
+  dplyr::summarise(score = mean(g1tmathss), school = first(g1surban),type=first(g1classtype),number=n(), gender = first(g1tgen), race = first(g1trace), high = first(g1thighdegree), career = first(g1tcareer), years = first(g1tyears), list = first(g1tlistss))
+
+# g1tchid"          "g1tgen"           "g1trace"          "g1thighdegree"   
+# [61] "g1tcareer"        "g1tyears"       g1tmathss"        "g1tlistss"   
+levels(teacher_unit_eda$school) <- c("Inner", "Suburban",   "Rural","Urban")
+levels(teacher_unit_eda$type) <- c("Small", "NoAide",   "Aide")
+
+par(mfrow = c(1, 2))
+
+plot1 <- boxplot(score ~ school,data=teacher_unit_eda, main="Math score by school type",
+   xlab="School type", ylab="Math score")
+
+plot2 <- boxplot(score ~ type,data=teacher_unit_eda, main="Math score by class type",
+   xlab="Class type", ylab="Math score")
+
+```
+
+\begin{center}  
+Figure 2.1 Left Panel: Boxplot of mean score by school type. Right Panel: Boxplot of mean score by class type.  
+\end{center}    
+
+From the left panel of Figure 2.1, we can see the performance of the students varies greatly in schools in different regions. The math scores of schools in inner city are much lower than those of schools in other regions. This implies that randomization did not happen among schools. 
+
+According to the right panel of Figure 2.1, it seems that there are differences among math scores in different type of class. We will use a two-way ANOVA model to determine whether or not that is statistically significant.
+
+# 3. Methods
+## 3.1 Two-Way ANOVA Model  
+Two-way ANOVA models are suitable for two-factor studies. Since we consider two factors: class type and school, using a two-way ANOVA model is appropriate. For the school indicator, we used urbancity to classify the school into four types: inner city, suburban, urban, and rural. One reason is that school ID have too many levels, making the analysis difficult. Also, if we used school ID as our treatment, the sample size of each group would be too small, making our result unreliable. Since we treated teachers as units, we used mean math scores of all students taught by a teacher as the corresponding response variable.
+
+Our model equation is:
+
+$$Y_{ijk} = \mu_{ij} + \epsilon_{ijk},   i = 1,2,3, j = 1,2,3,4, k = 1,...,n_{ij}.$$
+
+**Explanation of Notation**:  
+
+* The index $i$ denotes factor level of class types.
+
+* The index $j$ denotes factor level of school types.
+
+* The index $k$ denotes experimental unit. In our study, each experiemental unit is a teacher teaching 1st-grade students.
+
+* The index $n_{ij}$ is the number of experimental units in the group of ith class type and jth school. 
+
+* $Y_{ijk}$ denotes math scores of the $k$th teachear teaching $i$th class type in the $j$th school type. 
+
+* $\mu_{ij}$ denotes the mean of response variable in the $i$th class type and $j$th school type's popualtion.
+
+* $\epsilon_{ijk}$ denotes random errors. Random errors in experimental measurements are caused by unknown and unpredictable changes in the experiment.
+
+**Our two-way ANOVA model comes with the following assumptions**:
+
+* Normality: $\epsilon_{ijk}$s are normal random variables.
+
+* Equal Variance: $\epsilon_{ijk}$s have the same variance.
+
+* Independence: $\epsilon_{ijk}$s are independent with each other.
+
+We will examine these assumptions in further detail in the model Diagnostic section.
+
+## 3.2 Model Fitting  
+Fitting our model to the data, we get the following results.  
+```{r oneway.anova, fig.align='center', include=FALSE, results='asis'}
+load("C:/Users/admin/Desktop/2020 Winter/STA 207/Project 2/STAR_Students.RData") #load Tennessee STAR dataset
+STAR     <- x #clones original dataset
+STAR$g1tchid <- as.character(STAR$g1tchid)
+
+teacher_unit   <- STAR %>%
+  dplyr::select(g1tchid, g1tmathss, g1surban, g1classtype) %>%
+  drop_na() %>%
+  group_by(g1tchid) %>%
+  dplyr::summarise(score = mean(g1tmathss), school = first(g1surban), type = first(g1classtype))
+
+
+fit       <- lm(score ~ type + school,  data = teacher_unit)
+anova.fit <- anova(fit)
+
+small <- teacher_unit %>%
+  filter(type == 'SMALL CLASS') %>%
+  dplyr::summarise(mean = mean(score))
+  
+
+# small
+small_urban <- teacher_unit %>%
+  filter(type == 'SMALL CLASS', school == 'URBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+small_rural <- teacher_unit %>%
+  filter(type == 'SMALL CLASS', school == 'RURAL') %>%
+  dplyr::summarise(mean = mean(score))
+
+small_suburban <- teacher_unit %>%
+  filter(type == 'SMALL CLASS', school == 'SUBURBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+small_innercity <- teacher_unit %>%
+  filter(type == 'SMALL CLASS', school == 'INNER CITY') %>%
+  dplyr::summarise(mean = mean(score))
+
+
+
+# regular
+regular_urban <- teacher_unit %>%
+  filter(type == 'REGULAR CLASS', school == 'URBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+regular_rural <- teacher_unit %>%
+  filter(type == 'REGULAR CLASS', school == 'RURAL') %>%
+  dplyr::summarise(mean = mean(score))
+
+regular_suburban <- teacher_unit %>%
+  filter(type == 'REGULAR CLASS', school == 'SUBURBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+regular_innercity <- teacher_unit %>%
+  filter(type == 'REGULAR CLASS', school == 'INNER CITY') %>%
+  dplyr::summarise(mean = mean(score))
+
+
+
+# regular + aide
+aide_urban <- teacher_unit %>%
+  filter(type == 'REGULAR + AIDE CLASS', school == 'URBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+aide_rural <- teacher_unit %>%
+  filter(type == 'REGULAR + AIDE CLASS', school == 'RURAL') %>%
+  dplyr::summarise(mean = mean(score))
+
+aide_suburban <- teacher_unit %>%
+  filter(type == 'REGULAR + AIDE CLASS', school == 'SUBURBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+aide_innercity <- teacher_unit %>%
+  filter(type == 'REGULAR + AIDE CLASS', school == 'INNER CITY') %>%
+  dplyr::summarise(mean = mean(score))
+
+# class
+small <- teacher_unit %>%
+  filter(type == 'SMALL CLASS') %>%
+  dplyr::summarise(mean = mean(score))
+
+regular <- teacher_unit %>%
+  filter(type == 'REGULAR CLASS') %>%
+  dplyr::summarise(mean = mean(score))
+
+aide <- teacher_unit %>%
+  filter(type == 'REGULAR + AIDE CLASS') %>%
+  dplyr::summarise(mean = mean(score))
+
+# school
+innercity <- teacher_unit %>%
+  filter(school == 'INNER CITY') %>%
+  dplyr::summarise(mean = mean(score))
+
+suburban <- teacher_unit %>%
+  filter(school == 'SUBURBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+rural <- teacher_unit %>%
+  filter(school == 'RURAL') %>%
+  dplyr::summarise(mean = mean(score))
+
+urban <- teacher_unit %>%
+  filter(school == 'URBAN') %>%
+  dplyr::summarise(mean = mean(score))
+
+
+print(c(small_innercity,small_suburban,small_rural,small_urban))
+print(c(regular_innercity,regular_suburban,regular_rural,regular_urban))
+print(c(aide_innercity,aide_suburban,aide_rural,aide_urban))
+
+print(c(small,regular,aide))
+print(c(innercity,suburban,rural,urban))
+
+mean(teacher_unit$score)
+```
+|                        | $j = 1$<br>Inner City | $j = 2$<br>Suburban | $j = 3$<br>Rural | $j = 4$<br>Urban | Row Average |
+|------------------------|-----------------------|---------------------|------------------|------------------|-------------|
+| $i = 1$ Small          | 517                   | 546                 | 544              | 545              | 539         |
+| $i = 2$ Regular        | 504                   | 528                 | 534              | 532              | 525         |
+| $i = 3$ Regular + Aide | 507                   | 527                 | 539              | 527              | 529         |
+| Column Average         | 510                   | 534                 | 539              | 536              | 532         |
+\begin{center}  
+Table 3.2 Result of model fitting. The last column shows the fitted value for math score of each class type. The last row shows the fitted value for math score of each school type. The cells except for those in the last row or column show the fitted math score of corresponding group.  
+\end{center} 
+
+From Table 3.2, we can see that math scores of small class are higher than those of regular class. And math scores of schools in inner city are much lower than those of schools in other regions. 
+
+```{r,include=FALSE}
+fit       <- lm(score ~ as.factor(type)+as.factor(school), data = teacher_unit)
+anova.fit <- anova(fit)
+anova.fit
+```
+  
+# 4. Model Diagnostic 
+```{R include=FALSE}
+datawzw<-teacher_unit %>%
+                mutate(sch.in=case_when(school=="INNER CITY"~1,TRUE~0)) %>%
+                mutate(sch.ur=case_when(school=="URBAN"~1,TRUE~0)) %>%
+                mutate(sch.sub=case_when(school=="SUBURBAN"~1,TRUE~0)) %>%
+                mutate(ty.small=case_when(type=="SMALL CLASS"~1,TRUE~0)) %>%
+                mutate(ty.aide=case_when(type=="REGULAR + AIDE CLASS"~1,TRUE~0))
+```
+```{r echo=FALSE, fig.align="center", fig.height=3, fig.width=8}
+par(mfrow=c(1,3))
+hist(fit$residuals,probability = TRUE,main = "Histogram of Residuals",xlab = "Residuals")
+lines(density(residuals(fit)))
+plot(fit,which=2)
+abline(0,1,col="red",lwd=2.5)
+plot(fit$fitted.values,fit$residuals,main = "Residuals spread out v.s. fitted values",xlab = "fitted values",ylab = "residuals")
+```  
+\begin{center}  
+Figure 4.1 Left Panel: Histogtram of the residuals. Middle Panel: Normal Q-Q of the residuals.  Right Panel: Standardized residual v.s. fitted values.
+\end{center}  
+## 4.1 Normality  
+We examine the distribution of the residuals to check the Normality of error term. 
+```{R include=FALSE}
+ad.p_value1 <- nortest::ad.test(residuals(fit))[[2]]
+```   
+From the histogram and Q-Q plot we find that the distribution of residuals is right-skewed. To make a more scientific conclusion, we conduct Anderson-Darling test, which tests whether a given sample of data is drawn from a given probability distribution. The p-value of test equals to 0.018. So we have strong evidence to reject the null hypothesis of Normality at significance level 0.05. 
+
+## 4.2 Equal Variance  
+We need to check the equality of variance among different groups. Inequality of variance is possible to overshadow the effect caused by different group means. Here we examine the spread out of residuals.  
+```{R include=FALSE}
+data.vari<-datawzw %>%
+              mutate(singlefactor=paste(as.character(school),as.character(type))) %>%
+              mutate(singlefactor=as_factor(singlefactor))
+leveneTest(score~school, datawzw)
+leveneTest(score~type, datawzw)
+```
+From figure 4.2, the variance of residuals looks different among groups to some extent. We conduct Levene's test for further confirmation. Levene's test is not very sensitive to departures from Normality. For the two facotrs in our sample, the corresponding pvalues are 0.15 and 0.54, which indicates we can conclude the variances among different groups are equal at significance level 0.05.  
+
+## 4.3 Independence  
+The sample independence is directly determined in the process of data collecting. We can check the details of the experiment design to find the answer. There are mainly 2 forms of dependence:  
+
+* Between groups: No subject appears in more than two groups.  
+* Within groups: The data points in one group should not connect with each other in any form.  
+
+We find some background information about the experiment design from STARUserGuide:  
+ 1. All Tennessee schools were invited to participate in STAR and the cost associated with the study was provided by the State. It indicates that no Tennesse school failed to participate in STAR because of low levels of economic conditions or facilities.   
+ 2. Schools agreed to randomly assign teachers and students to different class conditions(i.e., class sizes).  
+
+Conclusion: It is reasonable to assume that the random assignment conformed to the design requirement. Also, each Tennessee school enjoyed equal chance of participation. So we can conclude that the randomization is well performed in the experiment and independence is satisfied. 
+
+
+# 5. Testing
+## 5.1 Interaction  
+We examined whether the two factors class type and school interact using F-test. Although the assumption of normality does not hold, we still used F-test since F-test is pretty robust to the normality assumption. The result is that the interaction between class type and school is not significant. See table A in the Appendix for detailed information.
+
+## 5.2 Main Effects  
+We examined whether the main effects for class type and school are significant using F-test. Table 5.1 shows that the main effects for both factors are statistically significant, indicating both factors are associated with the scaled score in 1st grade across teachers. The p-value of class type is 1.3e-05 and the p-value of school is 3.0e-16, less than the significant level 0.05. 
+
+
+|            | DF  | Sum Sq | Mean Sq | F value | Pr(>F)  |
+|------------|-----|--------|---------|---------|---------|
+| Class Type | 2   | 11617  | 5809    | 12      | 1.3e-05 |
+| School     | 3   | 42302  | 14101   | 28      | 3.0e-16 |
+| Residuals  | 333 | 166755 | 501     |         |         |
+
+\begin{center}  
+Table 5.1 Test of Main Effects: ANOVA Table  
+\end{center} 
+
+## 5.3 Multiple Pairwise Comparisons of Factor Level Means
+We examined whether there is a difference in math scaled score in 1st grade across teachers in different class types using the Tukey's procedure. Since we wanted to conduct all pairwise comparisons among factor level means, the Tukey's procedure is appropriate. Table 5.2 shows that there are significant differences between regular class with aide and small class and between regular class and small class. There is no significant difference between regular class with aide and regular class. P-values after adjustment for comparisons between regular class with aide and small class and between regular class and small class are 0.00, less than the significant level 0.05. The p-value after adjustment for the comparison between regular class with aide and regular class is 0.38, higher than the significant level 0.05.
+
+
+| Class Type                           | diff  | lwr   | upr  | p adj |
+|--------------------------------------|-------|-------|------|-------|
+| Regular Class - Small Class          | -13.6 | -20.4 | -6.8 | 0.00  |
+| Regular + Aide Class - Small Class   | -9.5  | -16.6 | -2.4 | 0.00  |
+| Regular + Aide Class - Regular Class | 4.1   | -3.1  | 11.3 | 0.38  |
+
+\begin{center}Table 5.2 Multiple Pairwise Comparisons of Factor Level Means: Tukey's Procedure  
+\end{center}  
+# 6. Discussion  
+## 6.1 Result
+The result of project 2 is the same as that of project 1: 1st grade math scores are significant higher in small class than in regular class and regular class with aide, and scores of regular class and regular class with aide are not significant different.  
+
+## 6.2 Causal Statement
+One important step is to check whether STAR experiment satisfies the requirement of randomization. If so, we can convert the findings of numerical association between test scores and class types into a practical causal statement.
+
+* **Positivity assumption**: Under any school type level, the possibility that every unit(teacher) was assigned to each class type is strictly positive. In our case, each combination of school type and class type has a positive number of observations.  
+
+* **Ignorability assumption**: We do not need to take other variables into consideration when concluding the casual effect if the experimetn is fully randomized. STAR experiment design ensures that, given the level of class type and school, other variables such as teacher characteristics and ethnicity randomizely affect the test scores.  
+
+* **The Stable Unit Treatment Value Assumption (SUTVA)**:  
+  1. No interference. The class type assigned to one teacher does not affect the outcome of other teachers. Since students are randomly assigned to each class type and there is no obvious interaction between different classes' education activity, this point should hold.  
+  2. One version of treatment. For each class type, the teaching effects given by teachers  are stable given the school type.  This is guaranteed by the experiment design.  
+  
+Given the information about experiment design of STAR, it is reasonable to assumes the randomization is satisfied. As a result, we are able to make the conlusion that small class size leads to better performance in math test score for students in 1st grade.  
+
+## 6.3 Limit in Analysis:   
+We do not conduct transformation to the response variable for better Normality because the transformed resposne variable(reciprocal by boxcox) does not have much meaning from the angle of interpretation. Information contained in the original data could be folded during the process of transformation.  
+
+As a result, the Normality is not well statisfied in our data. Although the F test within ANOVA model is robust to imperfections of Normality, the test results can be influenced which is unpredictable. For an analysis with better precision, we need to explore more sophiticated models which better fit our conditions.
+
+# Reference
+[1] Finn, J. D., Boyd-Zaharias, J., Fish, R. M., & Gerber, S. B. (2007). Project STAR and beyond: Database user’s guide. Lebanon, TN: HEROS.  
+[2]Peng, J. (2019). STA206: Statistical Methods for Research I [PowerPoint slides]. Retrieved from https://canvas.ucdavis.edu 
+[3]Project Star Dataverse. _Harvard Dataverse_. Retrieved from https://dataverse.harvard.edu/dataverse/star
+[4] Two Way ANOVA Test In R. _STHDA_. Retrieved from http://www.sthda.com/english/wiki/two-way-anova-test-in-r#compute-two-way-anova-test  
+
+# Appendix
+| Method                                                                                                       
+|-----------------------------------------------------------------------------------------------------------------------|
+| Model 1: Predictor variables contain class type and school.                                                            |
+| Model 2: Predictor variables contain class type, school and interaction between class type and school.                 |
+| $H_0$: Coefficients of the interation term are zero.                                                                   |
+| $H_a$: Coefficients of the interation term are not zero.                                                               |
+| Test statistic: $F^*=\frac{\frac{SSE(model1)-SSE(model2)}{df_{model1}-df_{model2}}}{\frac{SSE(model2)}{df_{model2}}}$ |
+| Decision rule: Reject $H_0$ if the p-value of $F^*$ is less than the significance level 0.05.                         |
+| Result:  P-value=0.67>0.05. $H_0$ cannot be rejected.   
+
+\begin{center}  
+Table A Test of interaction term: F-test 
+\end{center} 
